@@ -54,6 +54,8 @@ if __name__ == '__main__':
     parser.add_argument('--num_updates', default=1e5, type=int,
                         help='Number of update steps to perform; normally dqn updates every mdp step, whereas rnn updates each episode')
     parser.add_argument('--alpha', default=0.001, type=float)
+    parser.add_argument('--lambda_1', default=1., type=float,
+                        help='For the MC head, what value of lambda do we use for lambda-returns?')
     parser.add_argument('--epsilon', default=0.1, type=float,
                         help='What (ending, if annealing) epsilon do we use?')
     parser.add_argument('--start_epsilon', default=None, type=float,
@@ -178,6 +180,7 @@ if __name__ == '__main__':
             print(f'normalizing {args.spec} by {reward_scale}')
         agent = LSTMAgent(transformed, args.hidden_size,
                           agent_args, mode=args.lstm_mode,
+                          lambda_1=args.lambda_1,
                           action_selection_head=args.lstm_action_selection_head,
                           lambda_coefficient=args.lambda_coefficient,
                           reward_scale=reward_scale,

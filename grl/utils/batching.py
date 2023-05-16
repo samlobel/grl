@@ -16,7 +16,8 @@ class JaxBatch:
                  next_obs: Union[np.ndarray, List[np.ndarray]] = [],
                  terminals: Union[np.ndarray, List[bool]] = [],
                  rewards: Union[np.ndarray, List[float]] = [],
-                 next_actions: Union[np.ndarray, List[int]] = []) -> None:
+                 next_actions: Union[np.ndarray, List[int]] = [],
+                 pis: Union[np.ndarray, List[np.ndarray]] = []) -> None:
         args = [all_obs, obs, actions, next_obs, terminals, rewards, next_actions]
         tlist = [type(x) for x in args]
         tmap = set(tlist)
@@ -38,6 +39,7 @@ class JaxBatch:
             self.rewards = np.array(rewards)
             # (b x 1)
             self.next_actions = np.array(next_actions, dtype=np.int32)
+            self.pis = np.array(pis)
 
         else:
             self.all_obs = all_obs
@@ -47,9 +49,12 @@ class JaxBatch:
             self.terminals = terminals
             self.rewards = rewards
             self.next_actions = next_actions
+            self.pis = pis
 
     def tree_flatten(self):
-        children = (self.all_obs, self.obs, self.actions, self.next_obs, self.terminals, self.rewards, self.next_actions)
+        children = (self.all_obs, self.obs, self.actions,
+                    self.next_obs, self.terminals, self.rewards, self.next_actions,
+                    self.pis)
         aux_data = None
         return (children, aux_data)
 
@@ -67,5 +72,5 @@ class JaxBatch:
             terminals: {self.terminals} \n
             rewards: {self.rewards} \n
             next_actions: {self.next_actions} \n
+            pis: {self.pis} \n
         """
-    

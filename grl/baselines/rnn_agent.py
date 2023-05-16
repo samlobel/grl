@@ -59,9 +59,32 @@ def seq_sarsa_lambda_error(qtd: jnp.ndarray, qmc: jnp.ndarray, a: jnp.ndarray):
 
     return q_vals_td - q_vals_mc
 
+def seq_sarsa_lambda_returns_error(q: jnp.ndarray, a: jnp.ndarray, r: jnp.ndarray,
+                                   g: jnp.ndarray, q1: jnp.ndarray, next_a: jnp.ndarray,
+                                   lambda_: float):
+    # If scalar make into vector.
+    lambda_ = jnp.ones_like(g) * lambda_
+    q1_vals = q1[jnp.arange(next_a.shape[0]), next_a]
+
+    # Work backwards to compute `G_{T-1}`, ..., `G_0`.
+    def _body(acc, xs):
+        returns, discounts, values, lambda_ = xs
+        acc = returns + discounts * ((1 - lambda_) * values + lambda_ * acc)
+        return acc, acc
+
+    _, returns = jax.lax.scan(
+        _body, q1_vals[-1], (r, g, q1_vals, lambda_), reverse=True)
+        # _body, v_t[-1], (r, g, v_t, lambda_), reverse=True)
+
+    lambda_returns = jax.lax.stop_gradient(returns)
+    q_vals = q[jnp.arange(a.shape[0]), a]
+    return q_vals - lambda_returns
+
 class LSTMAgent(DQNAgent):
     def __init__(self, network: hk.Transformed, n_hidden: int, 
-                 args: DQNArgs, mode: str = 'td0', action_selection_head = 'td0',
+                 args: DQNArgs, mode: str = 'td0',
+                 lambda_1: float = 1.0,  # The "target" value function lambda.
+                 action_selection_head = 'td0',
                  lambda_coefficient: float = 1.0,
                  reward_scale : float =1.0):
         # td0 mode means just training on TD0 loss. Both means train on both TD0 and TD1.
@@ -81,6 +104,7 @@ class LSTMAgent(DQNAgent):
         self.features_shape = args.features_shape
         self.n_actions = args.n_actions
         self.gamma = args.gamma
+        self.lambda_1 = lambda_1
         assert args.trunc_len is not None
         self.trunc_len = args.trunc_len # for truncated backprop through time
         self._rand_key, network_rand_key = random.split(args.rand_key)
@@ -105,6 +129,10 @@ class LSTMAgent(DQNAgent):
             self.td_error_fn = seq_sarsa_error
             self.batch_td_error_fn = vmap(self.td_error_fn)
             self.batch_mc_error_fn = vmap(seq_sarsa_mc_error)
+            # TODO tech debt: unneccessary override
+            if self.lambda_1 < 1.:
+                self.batch_mc_error_fn = vmap(seq_sarsa_lambda_returns_error,
+                                              in_axes=(0, 0, 0, 0, 0, 0, None))
             self.batch_lambda_error_fn = vmap(seq_sarsa_lambda_error)
         else:
             raise NotImplementedError(f"Unrecognized learning algorithm {args.algo}")
@@ -129,13 +157,15 @@ class LSTMAgent(DQNAgent):
         self.hidden_state = self.get_initial_hidden_state()
 
         
-    def act(self, obs: jnp.ndarray) -> jnp.ndarray:
+    def act(self, obs: jnp.ndarray, return_policy: bool = False) -> jnp.ndarray:
         """
         Get next epsilon-greedy action given a obs, using the agent's parameters.
         :param obs: (batch x time_steps x obs_size) obs to find actions for. 
         """        
-        action, self.hidden_state, self._rand_key = self._functional_act(obs, self.hidden_state, self._rand_key, self.network_params, self.eps)        
-        
+        action, self.hidden_state, policy, self._rand_key = self._functional_act(obs, self.hidden_state, self._rand_key, self.network_params, self.eps)
+
+        if return_policy:
+            return action, policy
         return action
     
     @partial(jit, static_argnums=0)
@@ -153,7 +183,7 @@ class LSTMAgent(DQNAgent):
                 key, subkey = random.split(key)
                 actions_ts.append(random.choice(key=subkey, a = jnp.arange(self.n_actions), p=policy[batch][ts]))
             action = jnp.append(action, jnp.array([actions_ts]), axis=-1)
-       return action, new_hidden, key
+       return action, new_hidden, policy, key
 
     def policy(self, h: hk.LSTMState, obs: jnp.ndarray):
         """
@@ -187,7 +217,7 @@ class LSTMAgent(DQNAgent):
             qs, new_h = self.Qs_td_lambda(obs, h, network_params)
         return jnp.argmax(qs, -1), qs, new_h
 
-    
+
     def Qs(self, obs: jnp.ndarray, h: hk.LSTMState, network_params: hk.Params) -> jnp.ndarray:
         """
         Get all Q-values given a obs, from TD(0)
@@ -217,12 +247,12 @@ class LSTMAgent(DQNAgent):
         Get action-values given a obs and action
         :param obs: (b x time_steps x *obs.shape) obs to find action-values
         :param action: (b x time_steps) Actions for action-values
-        :param network_params: NN parameters to use to calculate Q 
+        :param network_params: NN parameters to use to calculate Q
         :return: (b x time_steps) Action-values
         """
         qs = self.Qs(obs, h, network_params)
         return qs[jnp.arange(action.shape[0]), action]
-    
+
     def _loss(self, network_params: hk.Params,
              initial_hidden: hk.LSTMState,
              batch: JaxBatch,
@@ -243,9 +273,15 @@ class LSTMAgent(DQNAgent):
         td0_err = self.batch_td_error_fn(td0_q_s0, batch.actions, effective_rewards,
                                       jnp.where(batch.terminals, 0., effective_gamma),
                                       td0_q_s1, batch.next_actions)
-        td_lambda_err = self.batch_mc_error_fn(td_lambda_q_s0, batch.actions, effective_rewards,
-                                      jnp.where(batch.terminals, 0., effective_gamma),
-                                      batch.next_actions)
+        # TODO tech debt: unify function signature
+        if self.lambda_1 < 1.:
+            td_lambda_err = self.batch_mc_error_fn(td_lambda_q_s0, batch.actions, effective_rewards,
+                                             jnp.where(batch.terminals, 0., effective_gamma),
+                                             td0_q_s1, batch.next_actions, self.lambda_1)
+        else:
+            td_lambda_err = self.batch_mc_error_fn(td_lambda_q_s0, batch.actions, effective_rewards,
+                jnp.where(batch.terminals, 0., effective_gamma),
+                batch.next_actions)
 
         lambda_err = self.batch_lambda_error_fn(td0_q_s0, td_lambda_q_s0, batch.actions)
         td0_err, td_lambda_err, lambda_err = mse(td0_err), mse(td_lambda_err), mse(lambda_err)
@@ -339,9 +375,10 @@ def train_rnn_agent(mdp: MDP,
         all_obs.append(o_0_processed)
         
         # need to wrap in batch dimension
-        a_0 = agent.act(np.array([[o_0_processed]]))[-1][-1]
+        a_0, policy = agent.act(np.array([[o_0_processed]]), return_policy=True)
+        a_0 = a_0[-1][-1]
         all_actions.append(a_0)
-        
+
         # TODO no truncation length
         # For PR: is this functionality that we want to make optional?
         #for _ in range(agent.trunc_len):
@@ -355,14 +392,14 @@ def train_rnn_agent(mdp: MDP,
             all_obs.append(o_1_processed)
 
             # need to wrap in batch dimension
-            a_1 = agent.act(np.array([[o_1_processed]]))[-1][-1]
+            # TODO tech debt: policy
+            a_1, policy = agent.act(np.array([[o_1_processed]]), return_policy=True)
+            a_1 = a_1[-1][-1]
             all_actions.append(a_1)
-            
+
             # if done:
             #     #print(f"Broke early after {t} steps")
             #     break
-            
-            
             
             o_0_processed = o_1_processed
             a_0 = a_1
@@ -370,11 +407,11 @@ def train_rnn_agent(mdp: MDP,
         # print(rewards)
         batch = JaxBatch(all_obs = [all_obs],
                          obs=[all_obs[:-1]], 
-                             actions=[all_actions[:-1]], 
-                             next_obs=[all_obs[1:]], 
-                             terminals=[terminals], 
-                             rewards=[rewards], 
-                             next_actions=[all_actions[1:]])
+                         actions=[all_actions[:-1]],
+                         next_obs=[all_obs[1:]],
+                         terminals=[terminals],
+                         rewards=[rewards],
+                         next_actions=[all_actions[1:]])
 
        
         loss, aux_loss = agent.update(batch)
