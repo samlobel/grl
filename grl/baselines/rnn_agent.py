@@ -407,8 +407,8 @@ def train_rnn_agent(mdp: MDP,
                 aux_losses[aux_key].append(aux_val)
 
             if args.save_path:
-                with open(str(args.save_path) + f'ep_{num_eps}.pkl', "wb") as dill_file:
-                    dill.dump(agent, dill_file)
+                # TODO import saving from branch rnn_agent
+                pass
             # print(f"Step {steps} | Episode {num_eps} | Epsilon {agent.eps} | Loss {loss} | Avg Length {avg_len} | Reward {batch.rewards} | Success/Fail/Neutral {pct_success}/{pct_fail}/{pct_neutral} | Obs {batch.obs} | Q-vals {agent.Qs(batch.obs, agent.get_initial_hidden_state(), agent.network_params)[0]}")
             print(f"Step {steps} | Episode {num_eps} | Epsilon {agent.eps} | Loss {loss} | Avg Length {avg_len} | Reward {batch.rewards} | Success/Fail/Neutral {pct_success}/{pct_fail}/{pct_neutral} | \n Q-vals (TD(0)) {agent.Qs(batch.obs, agent.get_initial_hidden_state(), agent.network_params)[0]} \n Q-vals (TD(lambda)) {agent.Qs_td_lambda(batch.obs, agent.get_initial_hidden_state(), agent.network_params)[0]}")
         

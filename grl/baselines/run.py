@@ -171,7 +171,7 @@ if __name__ == '__main__':
                             epsilon_start=args.start_epsilon,
                             anneal_steps=args.epsilon_anneal_steps,
                             gamma_terminal = args.gamma_terminal,
-                            save_path = agents_path,)
+                            )
         reward_scale = args.reward_scale
         if args.normalize_reward_range and args.spec in reward_range_dict:
             reward_scale = 1 / (reward_range_dict[args.spec][0] - reward_range_dict[args.spec][1])
