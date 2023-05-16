@@ -61,12 +61,16 @@ def seq_sarsa_lambda_error(qtd: jnp.ndarray, qmc: jnp.ndarray, a: jnp.ndarray):
 
 class LSTMAgent(DQNAgent):
     def __init__(self, network: hk.Transformed, n_hidden: int, 
-                 args: DQNArgs, mode: str = 'td0', lambda_coefficient: float = 1.0,
+                 args: DQNArgs, mode: str = 'td0', action_selection_head = 'td0',
+                 lambda_coefficient: float = 1.0,
                  reward_scale : float =1.0):
         # td0 mode means just training on TD0 loss. Both means train on both TD0 and TD1.
         # lambda means train on both, and then add lambda-discrepancy as aux term.
         assert mode in ('td0', 'td_lambda', 'both', 'lambda'), mode
+        assert action_selection_head in ('td0', 'td_lambda'), action_selection_head
+
         self.mode = mode
+        self.action_selection_head = action_selection_head
         self.lambda_coefficient = lambda_coefficient
         self.reward_scale = reward_scale
         self.args = args
@@ -177,10 +181,10 @@ class LSTMAgent(DQNAgent):
         :param network_params: NN parameters to use to calculate Q.
         :return: (b x time_steps) Greedy actions
         """
-        if self.mode == 'td_lambda':
-            qs, new_h = self.Qs_td_lambda(obs, h, network_params)
-        else:
+        if self.action_selection_head == 'td0':
             qs, new_h = self.Qs(obs, h, network_params)
+        else:
+            qs, new_h = self.Qs_td_lambda(obs, h, network_params)
         return jnp.argmax(qs, -1), qs, new_h
 
     

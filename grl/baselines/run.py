@@ -70,6 +70,9 @@ if __name__ == '__main__':
         help='seed for random number generators')
     parser.add_argument('--lstm_mode', default='td0', type=str,
         help='Either td0, td_lambda, both, or lambda. Defines lstm loss')
+    parser.add_argument('--lstm_action_selection_head', default='td0', type=str,
+        help='Either td0 or td_lambda. Defines which head used for action selection')
+
     parser.add_argument('--lambda_coefficient', default=1.0, type=float,
         help='How much weight to give the lambda discrepancy')
     parser.add_argument('--reward_scale', default=1.0, type=float,
@@ -175,6 +178,7 @@ if __name__ == '__main__':
             print(f'normalizing {args.spec} by {reward_scale}')
         agent = LSTMAgent(transformed, args.hidden_size,
                           agent_args, mode=args.lstm_mode,
+                          action_selection_head=args.lstm_action_selection_head,
                           lambda_coefficient=args.lambda_coefficient,
                           reward_scale=reward_scale,
                           # reward_scale=args.reward_scale,
