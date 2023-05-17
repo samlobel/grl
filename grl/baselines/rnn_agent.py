@@ -290,7 +290,7 @@ class LSTMAgent(DQNAgent):
                 batch.next_actions)
 
         lambda_err = self.batch_lambda_error_fn(
-            td0_q_s0, td_lambda_q_s0, batch.actions, stop_mc_grad=self.stop_mc_grad_ld)
+            td0_q_s0, td_lambda_q_s0, batch.actions, self.stop_mc_grad_ld)
         td0_err, td_lambda_err, lambda_err = mse(td0_err), mse(td_lambda_err), mse(lambda_err)
         if mode == 'td0':
             main_loss =  td0_err
