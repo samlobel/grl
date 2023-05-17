@@ -53,9 +53,11 @@ def seq_sarsa_mc_error(q: jnp.ndarray, a: jnp.ndarray, r: jnp.ndarray, g: jnp.nd
     q_vals = q[jnp.arange(a.shape[0]), a]
     return q_vals - target
 
-def seq_sarsa_lambda_error(qtd: jnp.ndarray, qmc: jnp.ndarray, a: jnp.ndarray):
+def seq_sarsa_lambda_error(qtd: jnp.ndarray, qmc: jnp.ndarray, a: jnp.ndarray, stop_mc_grad: bool):
     q_vals_td = qtd[jnp.arange(a.shape[0]), a]
     q_vals_mc = qmc[jnp.arange(a.shape[0]), a]
+    if stop_mc_grad:
+        q_vals_mc = jax.lax.stop_gradient(q_vals_mc)
 
     return q_vals_td - q_vals_mc
 
@@ -86,12 +88,14 @@ class LSTMAgent(DQNAgent):
                  lambda_1: float = 1.0,  # The "target" value function lambda.
                  action_selection_head = 'td0',
                  lambda_coefficient: float = 1.0,
-                 reward_scale : float =1.0):
+                 reward_scale : float =1.0,
+                 stop_mc_grad_ld: bool = False,):
         # td0 mode means just training on TD0 loss. Both means train on both TD0 and TD1.
         # lambda means train on both, and then add lambda-discrepancy as aux term.
         assert mode in ('td0', 'td_lambda', 'both', 'lambda'), mode
         assert action_selection_head in ('td0', 'td_lambda'), action_selection_head
 
+        self.stop_mc_grad_ld = stop_mc_grad_ld
         self.mode = mode
         self.action_selection_head = action_selection_head
         self.lambda_coefficient = lambda_coefficient
@@ -133,7 +137,8 @@ class LSTMAgent(DQNAgent):
             if self.lambda_1 < 1.:
                 self.batch_mc_error_fn = vmap(seq_sarsa_lambda_returns_error,
                                               in_axes=(0, 0, 0, 0, 0, 0, None))
-            self.batch_lambda_error_fn = vmap(seq_sarsa_lambda_error)
+            self.batch_lambda_error_fn = vmap(seq_sarsa_lambda_error,
+                                                in_axes=(0, 0, 0, None))
         else:
             raise NotImplementedError(f"Unrecognized learning algorithm {args.algo}")
 
@@ -265,6 +270,7 @@ class LSTMAgent(DQNAgent):
         td0_q_s1 = td0_q_all[:, 1:, :]
 
         td_lambda_q_s0 = td_lambda_q_all[:, :-1, :]
+        td_lambda_q_s1 = td_lambda_q_all[:, 1:, :]
 
         # td0_err
         effective_gamma = jax.lax.select(self.args.gamma_terminal, 1., self.gamma)
@@ -277,13 +283,14 @@ class LSTMAgent(DQNAgent):
         if self.lambda_1 < 1.:
             td_lambda_err = self.batch_mc_error_fn(td_lambda_q_s0, batch.actions, effective_rewards,
                                              jnp.where(batch.terminals, 0., effective_gamma),
-                                             td0_q_s1, batch.next_actions, self.lambda_1)
+                                             td_lambda_q_s1, batch.next_actions, self.lambda_1)
         else:
             td_lambda_err = self.batch_mc_error_fn(td_lambda_q_s0, batch.actions, effective_rewards,
                 jnp.where(batch.terminals, 0., effective_gamma),
                 batch.next_actions)
 
-        lambda_err = self.batch_lambda_error_fn(td0_q_s0, td_lambda_q_s0, batch.actions)
+        lambda_err = self.batch_lambda_error_fn(
+            td0_q_s0, td_lambda_q_s0, batch.actions, stop_mc_grad=self.stop_mc_grad_ld)
         td0_err, td_lambda_err, lambda_err = mse(td0_err), mse(td_lambda_err), mse(lambda_err)
         if mode == 'td0':
             main_loss =  td0_err
