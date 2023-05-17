@@ -28,6 +28,12 @@ reward_range_dict = {
     'paint.95': (1.0, -1.0),
     'bridge-repair': (4018,  0),
     'hallway': (1.0,  0),
+    'aloha.10': (9.0, 0.0),
+    'hallway2': (1.0, 0.0),
+    'machine': (0.994, -15.0),
+    'mit': (1.0, -1.0),
+    'tiger-grid': (1.0, -1.0),
+    '4x4.95': (1.0, 0.0),
 }
 
 
@@ -175,9 +181,13 @@ if __name__ == '__main__':
                             gamma_terminal = args.gamma_terminal,
                             )
         reward_scale = args.reward_scale
-        if args.normalize_reward_range and args.spec in reward_range_dict:
+        
+        if args.normalize_reward_range:
+            if args.spec not in reward_range_dict:
+                raise ValueError(f"Spec {args.spec} does not have a defined reward range for normalization")
             reward_scale = 1 / (reward_range_dict[args.spec][0] - reward_range_dict[args.spec][1])
             print(f'normalizing {args.spec} by {reward_scale}')
+        
         agent = LSTMAgent(transformed, args.hidden_size,
                           agent_args, mode=args.lstm_mode,
                           lambda_1=args.lambda_1,
