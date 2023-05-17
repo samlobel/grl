@@ -1,4 +1,4 @@
-discount: 0.999000
+discount: 0.99000
 values: reward
 states: 256
 actions: 4
