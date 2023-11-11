@@ -74,7 +74,7 @@ def generate_runs(run_dicts: List[dict],
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--hparam', default='', type=str)
+    parser.add_argument('--hparam', type=str, required=True)
     parser.add_argument('--local', action='store_true')
     args = parser.parse_args()
 
